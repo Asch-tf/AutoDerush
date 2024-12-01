@@ -1,0 +1,34 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environment
+venv/
+env/
+.env/
+
+# IDE files
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# PyInstaller
+build/
+dist/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+
+# Application specific
+AutoDerush_logs/
+AutoDerush_config/ 

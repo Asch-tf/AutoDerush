@@ -1,0 +1,7 @@
+PyQt6>=6.0.0
+numpy>=1.20.0
+pyinstaller>=5.0.0
+pywin32>=300
+winshell>=0.6
+Pillow>=9.0.0
+opencv-python>=4.8.0 
