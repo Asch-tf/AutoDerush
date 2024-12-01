@@ -3,64 +3,37 @@ import sys
 import subprocess
 import winshell
 from win32com.client import Dispatch
-from pathlib import Path
 
-def create_executable():
-    """Crée l'exécutable avec PyInstaller"""
+def create_shortcut():
     try:
-        # Installer PyInstaller si nécessaire
-        subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller"], check=True)
+        # Obtenir le chemin absolu de l'exécutable
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        exe_path = os.path.join(current_dir, "dist", "AutoDerush.exe")
         
-        # Créer l'exécutable
-        subprocess.run(["pyinstaller", "AutoDerush.spec"], check=True)
-        
-        return True
-    except subprocess.CalledProcessError as e:
-        print(f"Erreur lors de la création de l'exécutable : {e}")
-        return False
-
-def create_desktop_shortcut():
-    """Crée un raccourci sur le bureau"""
-    try:
-        # Chemin de l'exécutable
-        exe_path = os.path.abspath(os.path.join("dist", "AutoDerush", "AutoDerush.exe"))
+        # Vérifier que l'exécutable existe
         if not os.path.exists(exe_path):
-            print(f"L'exécutable n'existe pas : {exe_path}")
+            print(f"Erreur : L'exécutable n'existe pas à {exe_path}")
             return False
-        
-        # Chemin du bureau
-        desktop = Path(winshell.desktop())
-        shortcut_path = os.path.join(desktop, "AutoDerush.lnk")
-        
+            
         # Créer le raccourci
+        desktop = winshell.desktop()
         shell = Dispatch('WScript.Shell')
-        shortcut = shell.CreateShortCut(shortcut_path)
+        shortcut = shell.CreateShortCut(os.path.join(desktop, "AutoDerush.lnk"))
         shortcut.Targetpath = exe_path
         shortcut.WorkingDirectory = os.path.dirname(exe_path)
-        shortcut.IconLocation = exe_path
+        shortcut.IconLocation = os.path.join(current_dir, "icon.ico")
         shortcut.save()
         
-        print(f"Raccourci créé sur le bureau : {shortcut_path}")
+        print(f"Raccourci créé sur le bureau : {os.path.join(desktop, 'AutoDerush.lnk')}")
         return True
         
     except Exception as e:
-        print(f"Erreur lors de la création du raccourci : {e}")
+        print(f"Erreur lors de la création du raccourci : {str(e)}")
         return False
 
-def main():
-    # Créer l'exécutable
-    print("Création de l'exécutable...")
-    if not create_executable():
-        print("Échec de la création de l'exécutable")
-        return
-    
-    # Créer le raccourci
-    print("Création du raccourci sur le bureau...")
-    if not create_desktop_shortcut():
-        print("Échec de la création du raccourci")
-        return
-    
-    print("Installation terminée avec succès !")
-
 if __name__ == "__main__":
-    main() 
+    print("Création du raccourci...")
+    if create_shortcut():
+        print("Installation terminée avec succès !")
+    else:
+        print("Échec de la création du raccourci") 

@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                           QPushButton, QLabel, QFileDialog, QSlider, QSpinBox,
                           QProgressBar, QMessageBox, QLineEdit, QComboBox,
-                          QInputDialog)
+                          QInputDialog, QGroupBox)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QImage, QPixmap
 
@@ -125,6 +125,58 @@ class VideoPreviewThread(QThread):
         self.running = False
         self.wait()
 
+class LoadingIndicator(QWidget):
+    """Widget d'indication de chargement"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(5)
+        
+        # Indicateur animé
+        self.spinner = QLabel()
+        self.spinner.setFixedSize(16, 16)
+        self.spinner.setStyleSheet("QLabel { color: #2196F3; font-size: 14px; font-weight: bold; }")
+        layout.addWidget(self.spinner)
+        
+        # Texte explicatif
+        self.text = QLabel("Calcul en cours...")
+        self.text.setStyleSheet("QLabel { color: #2196F3; font-weight: bold; }")
+        layout.addWidget(self.text)
+        
+        # Configuration du timer pour l'animation
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.rotate_text)
+        self.angle = 0
+        self.spinner.setText("◐")
+        
+        # Fond coloré pour plus de visibilité
+        self.setStyleSheet("""
+            LoadingIndicator {
+                background-color: #E3F2FD;
+                border: 1px solid #2196F3;
+                border-radius: 4px;
+                padding: 2px;
+            }
+        """)
+        self.hide()
+
+    def rotate_text(self):
+        """Change le caractère pour créer une animation de rotation"""
+        symbols = ["◐", "◓", "◑", "◒"]
+        self.angle = (self.angle + 1) % 4
+        self.spinner.setText(symbols[self.angle])
+
+    def start(self):
+        """Démarre l'animation"""
+        self.show()
+        self.timer.start(100)
+
+    def stop(self):
+        """Arrête l'animation"""
+        self.timer.stop()
+        self.hide()
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -135,6 +187,11 @@ class MainWindow(QMainWindow):
         self.preview_thread = None
         self.original_duration = 0
         self.analyzer = AudioAnalyzer()
+        self.loading_preset = False
+        self.estimate_timer = QTimer()
+        self.estimate_timer.setSingleShot(True)
+        self.estimate_timer.setInterval(500)  # Délai de 500ms
+        self.estimate_timer.timeout.connect(self.delayed_estimate)
         logging.info("Application démarrée")
         
     def setup_logging(self):
@@ -211,157 +268,194 @@ class MainWindow(QMainWindow):
     def init_ui(self):
         """Initialise l'interface utilisateur"""
         self.setWindowTitle("AutoDerush")
-        self.setMinimumWidth(600)
+        self.setMinimumWidth(800)  # Augmentation de la largeur minimale
         
         # Widget central
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        layout = QVBoxLayout(central_widget)
+        main_layout = QVBoxLayout(central_widget)
         
-        # Sélection de la vidéo et prévisualisation
-        video_preview_layout = QHBoxLayout()
+        # Création d'un layout horizontal pour diviser l'écran en deux colonnes
+        content_layout = QHBoxLayout()
         
-        # Zone de gauche (sélection vidéo)
-        video_select_layout = QVBoxLayout()
-        self.video_label = QLabel("Aucune vidéo sélectionnée")
-        video_select_layout.addWidget(self.video_label)
+        # Colonne de gauche (60% de la largeur)
+        left_column = QVBoxLayout()
+        left_column.setContentsMargins(0, 0, 10, 0)  # Marge à droite pour séparer les colonnes
+        
+        # Groupe Sélection de la vidéo
+        video_group = QGroupBox("Sélection de la vidéo")
+        video_layout = QVBoxLayout(video_group)
         
         select_button = QPushButton("Sélectionner une vidéo")
         select_button.setToolTip("Cliquez pour choisir la vidéo à traiter")
         select_button.clicked.connect(self.select_video)
-        video_select_layout.addWidget(select_button)
+        video_layout.addWidget(select_button)
+        
+        self.video_label = QLabel("Aucune vidéo sélectionnée")
+        self.video_label.setStyleSheet("font-weight: bold;")
+        video_layout.addWidget(self.video_label)
         
         # Informations de durée
+        duration_layout = QHBoxLayout()
         self.duration_label = QLabel("Durée : --:--:--")
-        video_select_layout.addWidget(self.duration_label)
         self.estimated_duration_label = QLabel("Durée estimée : --:--:--")
-        video_select_layout.addWidget(self.estimated_duration_label)
+        duration_layout.addWidget(self.duration_label)
+        duration_layout.addWidget(self.estimated_duration_label)
+        video_layout.addLayout(duration_layout)
         
-        video_preview_layout.addLayout(video_select_layout)
+        left_column.addWidget(video_group)
         
-        # Zone de droite (prévisualisation)
-        preview_layout = QVBoxLayout()
+        # Groupe Prévisualisation
+        preview_group = QGroupBox("Prévisualisation")
+        preview_layout = QVBoxLayout(preview_group)
         self.preview_label = QLabel()
-        self.preview_label.setMinimumSize(320, 240)
+        self.preview_label.setMinimumSize(480, 270)  # Format 16:9
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.preview_label.setStyleSheet("QLabel { background-color: black; }")
+        self.preview_label.setStyleSheet("QLabel { background-color: black; border: 1px solid #666; }")
         preview_layout.addWidget(self.preview_label)
         
-        video_preview_layout.addLayout(preview_layout)
-        layout.addLayout(video_preview_layout)
+        left_column.addWidget(preview_group)
         
-        # Sélection du dossier de sortie
-        output_dir_layout = QHBoxLayout()
-        self.output_dir_label = QLabel("Dossier de sortie :")
-        output_dir_layout.addWidget(self.output_dir_label)
+        # Colonne de droite (40% de la largeur)
+        right_column = QVBoxLayout()
+        right_column.setContentsMargins(10, 0, 0, 0)  # Marge à gauche pour séparer les colonnes
         
-        self.output_dir_path = QLineEdit()
-        self.output_dir_path.setReadOnly(True)
-        self.output_dir_path.setToolTip("Chemin du dossier où sera enregistrée la vidéo traitée")
-        output_dir_layout.addWidget(self.output_dir_path)
+        # Groupe Paramètres
+        params_group = QGroupBox("Paramètres de détection")
+        params_layout = QVBoxLayout(params_group)
         
-        select_dir_button = QPushButton("Choisir")
-        select_dir_button.setToolTip("Cliquez pour sélectionner le dossier de destination")
-        select_dir_button.clicked.connect(self.select_output_dir)
-        output_dir_layout.addWidget(select_dir_button)
-        
-        open_dir_button = QPushButton("Ouvrir")
-        open_dir_button.setToolTip("Ouvrir le dossier de destination dans l'explorateur")
-        open_dir_button.clicked.connect(lambda: open_folder(self.output_dir_path.text()))
-        output_dir_layout.addWidget(open_dir_button)
-        
-        layout.addLayout(output_dir_layout)
-        
-        # Nom du fichier de sortie
-        output_name_layout = QHBoxLayout()
-        output_name_layout.addWidget(QLabel("Nom du fichier de sortie :"))
-        
-        self.output_name_edit = QLineEdit()
-        self.output_name_edit.setPlaceholderText("nom_de_la_video.mp4")
-        output_name_layout.addWidget(self.output_name_edit)
-        layout.addLayout(output_name_layout)
-        
-        # Gestion des préréglages
-        presets_layout = QHBoxLayout()
-        presets_layout.addWidget(QLabel("Préréglages :"))
+        # Préréglages avec indicateur de chargement
+        presets_layout = QVBoxLayout()  # Changé en VBoxLayout pour meilleure organisation
+        presets_header = QHBoxLayout()
+        presets_header.addWidget(QLabel("Préréglages :"))
         
         self.presets_combo = QComboBox()
         self.presets_combo.addItems(self.presets.keys())
-        self.presets_combo.currentTextChanged.connect(self.load_preset)
-        presets_layout.addWidget(self.presets_combo)
+        self.presets_combo.currentTextChanged.connect(self.on_preset_changed)
+        presets_header.addWidget(self.presets_combo, 1)
+        presets_layout.addLayout(presets_header)
         
+        # Indicateur de chargement en dessous du combo
+        self.loading_indicator = LoadingIndicator()
+        presets_layout.addWidget(self.loading_indicator)
+        
+        # Boutons de préréglages
+        preset_buttons_layout = QHBoxLayout()
         save_preset_button = QPushButton("Sauvegarder")
         save_preset_button.setToolTip("Sauvegarder les paramètres actuels comme nouveau préréglage")
         save_preset_button.clicked.connect(self.save_current_preset)
-        presets_layout.addWidget(save_preset_button)
-        
         delete_preset_button = QPushButton("Supprimer")
         delete_preset_button.setToolTip("Supprimer le préréglage sélectionné")
         delete_preset_button.clicked.connect(self.delete_preset)
-        presets_layout.addWidget(delete_preset_button)
+        preset_buttons_layout.addWidget(save_preset_button)
+        preset_buttons_layout.addWidget(delete_preset_button)
+        presets_layout.addLayout(preset_buttons_layout)
         
-        layout.addLayout(presets_layout)
+        params_layout.addLayout(presets_layout)
+        params_layout.addSpacing(10)
         
         # Seuil de détection
-        threshold_layout = QHBoxLayout()
-        threshold_layout.addWidget(QLabel("Seuil de détection :"))
+        threshold_layout = QVBoxLayout()
+        threshold_label = QLabel("Seuil de détection :")
+        threshold_label.setToolTip("Plus le seuil est élevé, plus les silences détectés seront courts")
+        threshold_layout.addWidget(threshold_label)
         
+        threshold_control = QHBoxLayout()
         self.threshold_slider = QSlider(Qt.Orientation.Horizontal)
         self.threshold_slider.setMinimum(1)
         self.threshold_slider.setMaximum(100)
-        self.threshold_slider.setValue(25)  # Valeur par défaut
-        threshold_layout.addWidget(self.threshold_slider)
-        
-        self.threshold_label = QLabel("25")  # Valeur par défaut
-        threshold_layout.addWidget(self.threshold_label)
-        layout.addLayout(threshold_layout)
-        
+        self.threshold_slider.setValue(25)
         self.threshold_slider.valueChanged.connect(self.update_threshold_label)
-        self.threshold_slider.valueChanged.connect(self.estimate_duration)
+        self.threshold_slider.valueChanged.connect(self.schedule_estimate)
+        
+        self.threshold_label = QLabel("25")
+        threshold_control.addWidget(self.threshold_slider)
+        threshold_control.addWidget(self.threshold_label)
+        threshold_layout.addLayout(threshold_control)
+        params_layout.addLayout(threshold_layout)
         
         # Marge temporelle
-        margin_layout = QHBoxLayout()
-        margin_layout.addWidget(QLabel("Marge (ms) :"))
+        margin_layout = QVBoxLayout()
+        margin_label = QLabel("Marge temporelle (ms) :")
+        margin_label.setToolTip("Marge à conserver avant et après chaque segment de parole")
+        margin_layout.addWidget(margin_label)
         
         self.margin_spinbox = QSpinBox()
         self.margin_spinbox.setMinimum(0)
         self.margin_spinbox.setMaximum(1000)
         self.margin_spinbox.setValue(100)
-        self.margin_spinbox.valueChanged.connect(self.estimate_duration)
+        self.margin_spinbox.valueChanged.connect(self.schedule_estimate)
         margin_layout.addWidget(self.margin_spinbox)
-        layout.addLayout(margin_layout)
+        params_layout.addLayout(margin_layout)
         
-        # Zone de progression
-        progress_container = QWidget()
-        progress_layout = QVBoxLayout(progress_container)
+        right_column.addWidget(params_group)
         
-        # Barre de progression
+        # Groupe Export
+        export_group = QGroupBox("Export")
+        export_layout = QVBoxLayout(export_group)
+        
+        # Dossier de sortie
+        output_dir_layout = QHBoxLayout()
+        self.output_dir_path = QLineEdit()
+        self.output_dir_path.setReadOnly(True)
+        self.output_dir_path.setPlaceholderText("Dossier de destination")
+        output_dir_layout.addWidget(self.output_dir_path)
+        
+        select_dir_button = QPushButton("...")
+        select_dir_button.setToolTip("Sélectionner le dossier de destination")
+        select_dir_button.setMaximumWidth(30)
+        select_dir_button.clicked.connect(self.select_output_dir)
+        output_dir_layout.addWidget(select_dir_button)
+        
+        open_dir_button = QPushButton("Ouvrir")
+        open_dir_button.setToolTip("Ouvrir le dossier de destination")
+        open_dir_button.setMaximumWidth(60)
+        open_dir_button.clicked.connect(lambda: open_folder(self.output_dir_path.text()))
+        output_dir_layout.addWidget(open_dir_button)
+        
+        export_layout.addLayout(output_dir_layout)
+        
+        # Nom du fichier
+        self.output_name_edit = QLineEdit()
+        self.output_name_edit.setPlaceholderText("nom_de_la_video.mp4")
+        export_layout.addWidget(self.output_name_edit)
+        
+        right_column.addWidget(export_group)
+        
+        # Groupe Progression
+        progress_group = QGroupBox("Progression")
+        progress_layout = QVBoxLayout(progress_group)
+        
         self.progress_bar = QProgressBar()
         self.progress_bar.setTextVisible(True)
-        self.progress_bar.setMinimum(0)
-        self.progress_bar.setMaximum(100)
         self.progress_bar.hide()
         progress_layout.addWidget(self.progress_bar)
         
-        # Label pour le statut détaillé
         self.status_label = QLabel()
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_label.hide()
         progress_layout.addWidget(self.status_label)
         
-        layout.addWidget(progress_container)
+        right_column.addWidget(progress_group)
         
         # Bouton de traitement
         self.process_button = QPushButton("Traiter la vidéo")
         self.process_button.setToolTip("Lancer le traitement de la vidéo avec les paramètres actuels")
         self.process_button.clicked.connect(self.process_video)
         self.process_button.setEnabled(False)
-        layout.addWidget(self.process_button)
+        self.process_button.setMinimumHeight(40)
+        self.process_button.setStyleSheet("QPushButton { font-weight: bold; }")
+        right_column.addWidget(self.process_button)
+        
+        # Ajout des colonnes au layout principal
+        content_layout.addLayout(left_column, 60)
+        content_layout.addLayout(right_column, 40)
+        main_layout.addLayout(content_layout)
         
         # Variables de classe
         self.video_path = None
         self.process_thread = None
-
+        
         # Charger le préréglage par défaut après l'initialisation de l'interface
         QTimer.singleShot(100, lambda: self.load_preset("Standard"))
 
@@ -480,15 +574,46 @@ class MainWindow(QMainWindow):
         """Affiche une boîte de dialogue d'erreur"""
         QMessageBox.critical(self, title, message)
         
-    def load_preset(self, preset_name):
-        """Charge un préréglage"""
-        if preset_name in self.presets:
+    def on_preset_changed(self, preset_name):
+        """Gère le changement de préréglage avec indication visuelle"""
+        if not self.loading_preset and preset_name in self.presets:
+            self.loading_preset = True
+            self.loading_indicator.start()
+            self.presets_combo.setEnabled(False)
+            
+            # Arrêter toute estimation en cours
+            self.estimate_timer.stop()
+            
+            # Utiliser QTimer pour permettre à l'interface de se mettre à jour
+            QTimer.singleShot(100, lambda: self.apply_preset(preset_name))
+
+    def apply_preset(self, preset_name):
+        """Applique le préréglage sélectionné"""
+        try:
             preset = self.presets[preset_name]
+            # Désactiver temporairement les connexions pour éviter les estimations multiples
+            self.threshold_slider.valueChanged.disconnect(self.schedule_estimate)
+            self.margin_spinbox.valueChanged.disconnect(self.schedule_estimate)
+            
             self.threshold_slider.setValue(preset["threshold"])
             self.margin_spinbox.setValue(preset["margin"])
-            self.estimate_duration()  # Estimer la durée après le chargement du préréglage
-            logging.info(f"Préréglage chargé : {preset_name}")
             
+            # Rétablir les connexions
+            self.threshold_slider.valueChanged.connect(self.schedule_estimate)
+            self.margin_spinbox.valueChanged.connect(self.schedule_estimate)
+            
+            self.estimate_duration()
+            logging.info(f"Préréglage chargé : {preset_name}")
+        finally:
+            self.loading_preset = False
+            self.loading_indicator.stop()
+            self.presets_combo.setEnabled(True)
+
+    def load_preset(self, preset_name):
+        """Charge un préréglage initial"""
+        if preset_name in self.presets:
+            self.presets_combo.setCurrentText(preset_name)  # Cela déclenchera on_preset_changed
+
     def save_current_preset(self):
         """Sauvegarde les paramètres actuels comme nouveau préréglage"""
         name, ok = QInputDialog.getText(
@@ -608,3 +733,14 @@ class MainWindow(QMainWindow):
         if self.preview_thread is not None:
             self.preview_thread.stop()
         event.accept()
+
+    def schedule_estimate(self):
+        """Programme une estimation différée"""
+        if not self.loading_preset:  # Ne pas programmer si on charge un préréglage
+            self.loading_indicator.start()
+            self.estimate_timer.start()
+
+    def delayed_estimate(self):
+        """Effectue l'estimation après le délai"""
+        self.estimate_duration()
+        self.loading_indicator.stop()

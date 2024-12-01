@@ -1,87 +1,48 @@
 # AutoDerush
 
-AutoDerush est une application de traitement vidéo qui permet de supprimer automatiquement les silences dans les vidéos. Elle est particulièrement utile pour le montage de vidéos, les tutoriels, ou tout autre contenu où vous souhaitez éliminer les temps morts.
+AutoDerush est une application qui permet de supprimer automatiquement les silences dans les vidéos.
 
-## Fonctionnalités
+## Nouvelles fonctionnalités (v1.1.0)
 
-- Détection automatique des silences
-- Prévisualisation en temps réel de la vidéo
-- Interface graphique intuitive
-- Préréglages personnalisables
-- Contrôle précis des paramètres de détection
-- Prévisualisation du résultat avant export
+- Interface utilisateur améliorée avec une disposition en deux colonnes pour une meilleure ergonomie
+- Indicateur visuel lors du chargement des préréglages
+- Optimisation de la réactivité lors des ajustements du seuil de détection
+- Affichage des durées (originale et estimée) plus visible
+- Meilleure organisation des paramètres et des contrôles
 
-## Prérequis
+## Fonctionnalités principales
 
-- Python 3.6 ou supérieur
-- FFmpeg installé et accessible dans le PATH
-- Les dépendances Python listées dans `requirements.txt`
+- Détection automatique des silences dans les vidéos
+- Prévisualisation en temps réel
+- Préréglages personnalisables (Standard, Agressif, Conservateur)
+- Ajustement fin du seuil de détection
+- Contrôle de la marge temporelle
+- Export au format MP4
+- Gestion des préréglages (sauvegarde, chargement, suppression)
 
 ## Installation
 
-1. Clonez ce dépôt :
-
-```bash
-git clone https://github.com/votre-username/AutoDerush.git
-cd AutoDerush
-```
-
-2. Installez les dépendances :
-
-```bash
-pip install -r requirements.txt
-```
-
-3. Installez FFmpeg :
-   - Windows : [Téléchargez FFmpeg](https://ffmpeg.org/download.html)
-   - Linux : `sudo apt-get install ffmpeg`
-   - macOS : `brew install ffmpeg`
+1. Téléchargez la dernière version depuis la page des releases
+2. Exécutez le fichier AutoDerush.exe
+3. Un raccourci sera créé automatiquement sur votre bureau
 
 ## Utilisation
 
-1. Lancez l'application :
-
-```bash
-python video_cutter/main.py
-```
-
-2. Sélectionnez une vidéo à traiter
+1. Lancez l'application depuis le raccourci sur le bureau
+2. Cliquez sur "Sélectionner une vidéo" pour choisir votre fichier
 3. Ajustez les paramètres selon vos besoins :
-   - Seuil de détection : contrôle la sensibilité de détection des silences
-   - Marge : définit la durée à conserver avant/après chaque segment
-4. Utilisez les préréglages ou créez les vôtres
-5. Cliquez sur "Traiter la vidéo"
+   - Utilisez les préréglages existants ou créez les vôtres
+   - Ajustez le seuil de détection pour plus ou moins de sensibilité
+   - Définissez la marge temporelle avant/après les segments
+4. La durée estimée s'affiche automatiquement lors des ajustements
+5. Cliquez sur "Traiter la vidéo" pour lancer l'export
 
-## Création de l'exécutable
+## Configuration requise
 
-Pour créer un exécutable Windows :
+- Windows 10 ou supérieur
+- 4 Go de RAM minimum
+- Espace disque : 200 Mo + espace pour vos vidéos
 
-```bash
-python create_shortcut.py
-```
+## Support
 
-Cela créera :
-- Un exécutable dans le dossier `dist/AutoDerush`
-- Un raccourci sur le bureau
-
-## Préréglages
-
-L'application inclut trois préréglages par défaut :
-- Standard (seuil : 25, marge : 100ms)
-- Agressif (seuil : 75, marge : 50ms)
-- Conservateur (seuil : 15, marge : 200ms)
-
-Vous pouvez créer et sauvegarder vos propres préréglages.
-
-## Contribution
-
-Les contributions sont les bienvenues ! N'hésitez pas à :
-1. Fork le projet
-2. Créer une branche pour votre fonctionnalité
-3. Commiter vos changements
-4. Pousser vers la branche
-5. Ouvrir une Pull Request
-
-## Licence
-
-Ce projet est sous licence MIT. Voir le fichier `LICENSE` pour plus de détails. 
+En cas de problème ou pour des suggestions d'amélioration, n'hésitez pas à ouvrir une issue sur GitHub. 
