@@ -4,13 +4,17 @@ import json
 import logging
 import subprocess
 import cv2
-from datetime import datetime
+from datetime import datetime, timedelta
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                           QPushButton, QLabel, QFileDialog, QSlider, QSpinBox,
                           QProgressBar, QMessageBox, QLineEdit, QComboBox,
                           QInputDialog)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QImage, QPixmap
+
+def format_duration(seconds):
+    """Formate une durée en secondes en format HH:MM:SS"""
+    return str(timedelta(seconds=int(seconds)))
 
 # Ajouter le dossier parent au path pour permettre les imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -76,6 +80,7 @@ class ProcessThread(QThread):
 class VideoPreviewThread(QThread):
     """Thread pour la prévisualisation de la vidéo"""
     frame_ready = pyqtSignal(QImage)
+    duration_ready = pyqtSignal(float, float)  # Durée originale, durée estimée
     
     def __init__(self, video_path):
         super().__init__()
@@ -85,7 +90,12 @@ class VideoPreviewThread(QThread):
     def run(self):
         cap = cv2.VideoCapture(self.video_path)
         fps = cap.get(cv2.CAP_PROP_FPS)
-        frame_delay = int(1000 / fps)  # Délai en ms entre les frames
+        frame_delay = int(1000 / fps)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        duration = total_frames / fps
+        
+        # Émettre la durée originale
+        self.duration_ready.emit(duration, 0)  # La durée estimée sera mise à jour plus tard
         
         while self.running and cap.isOpened():
             ret, frame = cap.read()
@@ -119,10 +129,12 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setup_logging()
-        self.load_presets()  # Charger les préréglages au démarrage
+        self.load_presets()
         self.init_ui()
         self.setup_tooltips()
         self.preview_thread = None
+        self.original_duration = 0
+        self.analyzer = AudioAnalyzer()
         logging.info("Application démarrée")
         
     def setup_logging(self):
@@ -140,7 +152,7 @@ class MainWindow(QMainWindow):
             ]
         )
         logging.info("Système de logging initialisé")
-        
+
     def get_presets_file(self):
         """Retourne le chemin du fichier de préréglages"""
         presets_dir = os.path.join(os.path.expanduser("~"), "AutoDerush_config")
@@ -174,7 +186,7 @@ class MainWindow(QMainWindow):
             logging.info("Préréglages sauvegardés")
         except Exception as e:
             logging.error(f"Erreur lors de la sauvegarde des préréglages : {str(e)}")
-            
+
     def setup_tooltips(self):
         """Configure les tooltips explicatifs"""
         self.threshold_slider.setToolTip(
@@ -195,7 +207,7 @@ class MainWindow(QMainWindow):
         self.presets_combo.setToolTip(
             "Sélectionnez un préréglage pour charger des paramètres prédéfinis"
         )
-        
+
     def init_ui(self):
         """Initialise l'interface utilisateur"""
         self.setWindowTitle("AutoDerush")
@@ -218,6 +230,13 @@ class MainWindow(QMainWindow):
         select_button.setToolTip("Cliquez pour choisir la vidéo à traiter")
         select_button.clicked.connect(self.select_video)
         video_select_layout.addWidget(select_button)
+        
+        # Informations de durée
+        self.duration_label = QLabel("Durée : --:--:--")
+        video_select_layout.addWidget(self.duration_label)
+        self.estimated_duration_label = QLabel("Durée estimée : --:--:--")
+        video_select_layout.addWidget(self.estimated_duration_label)
+        
         video_preview_layout.addLayout(video_select_layout)
         
         # Zone de droite (prévisualisation)
@@ -227,8 +246,8 @@ class MainWindow(QMainWindow):
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_label.setStyleSheet("QLabel { background-color: black; }")
         preview_layout.addWidget(self.preview_label)
-        video_preview_layout.addLayout(preview_layout)
         
+        video_preview_layout.addLayout(preview_layout)
         layout.addLayout(video_preview_layout)
         
         # Sélection du dossier de sortie
@@ -290,14 +309,15 @@ class MainWindow(QMainWindow):
         self.threshold_slider = QSlider(Qt.Orientation.Horizontal)
         self.threshold_slider.setMinimum(1)
         self.threshold_slider.setMaximum(100)
-        self.threshold_slider.setValue(25)  # Valeur par défaut modifiée
+        self.threshold_slider.setValue(25)  # Valeur par défaut
         threshold_layout.addWidget(self.threshold_slider)
         
-        self.threshold_label = QLabel("25")  # Valeur par défaut modifiée
+        self.threshold_label = QLabel("25")  # Valeur par défaut
         threshold_layout.addWidget(self.threshold_label)
         layout.addLayout(threshold_layout)
         
         self.threshold_slider.valueChanged.connect(self.update_threshold_label)
+        self.threshold_slider.valueChanged.connect(self.estimate_duration)
         
         # Marge temporelle
         margin_layout = QHBoxLayout()
@@ -307,6 +327,7 @@ class MainWindow(QMainWindow):
         self.margin_spinbox.setMinimum(0)
         self.margin_spinbox.setMaximum(1000)
         self.margin_spinbox.setValue(100)
+        self.margin_spinbox.valueChanged.connect(self.estimate_duration)
         margin_layout.addWidget(self.margin_spinbox)
         layout.addLayout(margin_layout)
         
@@ -340,7 +361,10 @@ class MainWindow(QMainWindow):
         # Variables de classe
         self.video_path = None
         self.process_thread = None
-        
+
+        # Charger le préréglage par défaut après l'initialisation de l'interface
+        QTimer.singleShot(100, lambda: self.load_preset("Standard"))
+
     def select_video(self):
         """Ouvre un dialogue pour sélectionner une vidéo"""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -364,6 +388,9 @@ class MainWindow(QMainWindow):
             
             # Démarrer la prévisualisation
             self.start_preview(file_path)
+            
+            # Estimer la durée avec les paramètres actuels
+            QTimer.singleShot(1000, self.estimate_duration)  # Attendre 1 seconde pour laisser le temps à la prévisualisation de s'initialiser
             
             logging.info(f"Vidéo sélectionnée : {file_path}")
             
@@ -459,6 +486,7 @@ class MainWindow(QMainWindow):
             preset = self.presets[preset_name]
             self.threshold_slider.setValue(preset["threshold"])
             self.margin_spinbox.setValue(preset["margin"])
+            self.estimate_duration()  # Estimer la durée après le chargement du préréglage
             logging.info(f"Préréglage chargé : {preset_name}")
             
     def save_current_preset(self):
@@ -525,22 +553,56 @@ class MainWindow(QMainWindow):
             self.presets_combo.removeItem(self.presets_combo.currentIndex())
             self.save_presets()
             logging.info(f"Préréglage supprimé : {preset_name}")
-            
+
     def start_preview(self, video_path):
         """Démarre la prévisualisation de la vidéo"""
-        # Arrêter la prévisualisation précédente si elle existe
         if self.preview_thread is not None:
             self.preview_thread.stop()
             
-        # Créer et démarrer le nouveau thread de prévisualisation
         self.preview_thread = VideoPreviewThread(video_path)
         self.preview_thread.frame_ready.connect(self.update_preview)
+        self.preview_thread.duration_ready.connect(self.update_durations)
         self.preview_thread.start()
         
     def update_preview(self, image):
         """Met à jour l'image de prévisualisation"""
         self.preview_label.setPixmap(QPixmap.fromImage(image))
         
+    def update_durations(self, original_duration, estimated_duration):
+        """Met à jour l'affichage des durées"""
+        self.original_duration = original_duration
+        self.duration_label.setText(f"Durée : {format_duration(original_duration)}")
+        if estimated_duration > 0:
+            self.estimated_duration_label.setText(f"Durée estimée : {format_duration(estimated_duration)}")
+            reduction = ((original_duration - estimated_duration) / original_duration) * 100
+            self.estimated_duration_label.setToolTip(f"Réduction de {reduction:.1f}%")
+        
+    def estimate_duration(self):
+        """Estime la durée finale en fonction des paramètres actuels"""
+        if hasattr(self, 'video_path') and self.video_path:
+            try:
+                # Configurer l'analyseur avec les paramètres actuels
+                self.analyzer.set_threshold(self.threshold_slider.value())
+                self.analyzer.set_margin(self.margin_spinbox.value())
+                
+                # Extraire l'audio et analyser
+                audio_data, sample_rate = self.analyzer.extract_audio(self.video_path)
+                segments = self.analyzer.detect_speech_segments(audio_data, sample_rate)
+                
+                if segments:
+                    # Calculer la durée totale des segments
+                    total_duration = sum((end - start) for start, end in segments)
+                    # Mettre à jour l'affichage
+                    self.update_durations(self.original_duration, total_duration)
+                else:
+                    self.estimated_duration_label.setText("Durée estimée : 00:00:00")
+                    self.estimated_duration_label.setToolTip("Aucun segment détecté")
+                    
+            except Exception as e:
+                logging.error(f"Erreur lors de l'estimation de la durée : {str(e)}")
+                self.estimated_duration_label.setText("Durée estimée : --:--:--")
+                self.estimated_duration_label.setToolTip("Erreur lors de l'estimation")
+
     def closeEvent(self, event):
         """Gestionnaire d'événement de fermeture de la fenêtre"""
         if self.preview_thread is not None:
